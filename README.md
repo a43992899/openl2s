@@ -21,7 +21,7 @@ Example usage:
 
 ```bash
 # single node
-# for more details on the args, see sep/run.multigpu.sh
+# for more details about the args, see sep/run.multigpu.sh
 cd sep
 bash run.multigpu.sh mtgjamendo false 0 1 8 2
 
