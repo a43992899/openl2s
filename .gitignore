@@ -1,0 +1,13 @@
+data/
+*.pyc
+model_data_4.txt
+new_mainwindow.txt
+self.txt
+.DS_Store
+__MACOSX/
+models
+models.zip
+logs/*.out
+logs/*.err
+test/
+sep/openl2s_sep_ckpts
