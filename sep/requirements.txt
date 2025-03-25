@@ -42,3 +42,6 @@ soundfile
 numpy==1.23.5
 tos
 huggingface_hub
+webrtcvad  
+kaldiio  
+sentencepiece
