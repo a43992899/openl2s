@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import torch
 import os
 import librosa
@@ -8,10 +7,15 @@ import json
 from tqdm import tqdm
 from functools import partial
 import sys
-from models.fireredasr_mp import FireRedAsr
+from fireredasr.models.fireredasr import FireRedAsr
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 from pathlib import Path
+
+
+import soundfile as sf
+import tempfile
+
 
 input_dir = sys.argv[1]
 output_path = sys.argv[2]
@@ -22,22 +26,42 @@ device = None
 model = None
 model_dir = "asr/pretrained_models"
 
-batch_size = 4
+batch_size = 1
 device_count = torch.cuda.device_count()
 shared_number = None
 pattern = r'\[(\d{2}):(\d{2}).(\d{2})\].*?'
 
 def load_model():
     global model
-    model = FireRedAsr(device, model_dir, half=True)
+    model = FireRedAsr.from_pretrained("aed", model_dir)
 
-def create_segments(wav, timestamps):
-    vad_timestamps = [re.findall(pattern, i)[0] for i in timestamps]
-    vad_timestamps_sec = [int(i[0]) * 60 + int(i[1]) + float(i[2]) / 100 for i in vad_timestamps]
-    vad_sample_points = [int(i) * 16000 for i in vad_timestamps_sec]
-    vad_sample_points = vad_sample_points + [wav.shape[-1]]
-    segments = [wav[vad_sample_points[i]:vad_sample_points[i + 1]] for i in range(len(vad_sample_points) - 1)]
-    return vad_timestamps, segments
+
+def create_segments(wav, timestamps, base_id,temp_dir):
+    vad_timestamps = [re.findall(pattern, ts)[0] for ts in timestamps]
+    vad_seconds = [
+        int(mm) * 60 + int(ss) + float(xx) / 100
+        for mm, ss, xx in vad_timestamps
+    ]
+    sample_points = [int(sec * 16000) for sec in vad_seconds]
+    sample_points.append(len(wav))  # Add endpoint
+
+    utt_ids = []
+    segment_paths = []
+
+    for i in range(len(sample_points) - 1):
+        start = sample_points[i]
+        end = sample_points[i + 1]
+        segment = wav[start:end]
+
+        seg_id = f"{base_id}_seg{i:03d}"
+        utt_ids.append(seg_id)
+
+        path = os.path.join(temp_dir, f"{seg_id}.wav")
+        sf.write(path, segment, samplerate=16000)
+        segment_paths.append(path)
+
+    return vad_timestamps, utt_ids, segment_paths
+
 
 def gen_lrc_file(asr_lrcs, lrc_timestamps):
     lrc_content = []
@@ -59,44 +83,41 @@ def main(paths, output_dir):
         name = os.path.basename(wav_path).split(".")[0]
         dec = audioread.ffdec.FFmpegAudioFile(wav_path)
         wav, sr = librosa.load(dec, sr=16000)
-        wav = torch.from_numpy(wav).to(device)
         with open(vad_path, "r") as f:
             timestamps = [i.strip() for i in f.readlines()]
-        vad_timestamps, segments = create_segments(wav, timestamps)
-        
-        sample_rate = 16000
-        max_segment_times = 30
-        custom_segment_sizes = max_segment_times * sample_rate
-        
-        asr_lrcs = []
-        for i in range(len(segments)):
-            if len(segments[i]) > custom_segment_sizes:
-                segments[i] = segments[i][:custom_segment_sizes]
+        base_id = os.path.splitext(os.path.basename(wav_path))[0]
+        temp_dir = tempfile.mkdtemp(prefix="fireredasr_")
+        vad_timestamps, utt_ids, segment_paths = create_segments(wav, timestamps, base_id, temp_dir)
+
+        # Transcribe
+        torch.cuda.set_device(device) 
+        results = model.transcribe(
+            utt_ids,
+            segment_paths,
+            {
+                "use_gpu": 1,
+                "beam_size": 3,
+                "nbest": 1,
+                "decode_max_len": 0,
+                "softmax_smoothing": 1.25,
+                "aed_length_penalty": 0.6,
+                "eos_penalty": 1.0,
+            }
+        )
 
 
-        for i in range(0, len(segments), batch_size):
-            batch_wavs = segments[i:i + batch_size]
-            wav_lengths = torch.LongTensor([i.shape[-1] for i in batch_wavs]).to(device)
-
-            results = model.transcribe(
-                batch_wavs, wav_lengths,
-                {
-                    "beam_size": 3,
-                    "nbest": 1,
-                    "decode_max_len": 0,
-                    "softmax_smoothing": 1.25,
-                    "aed_length_penalty": 0.6,
-                    "eos_penalty": 1.0,
-                    "decode_min_len": 0,
-                }
-            )
-            asr_lrcs.extend(results)
-
+        asr_lrcs = [res["text"] for res in results]
         new_lrcs = gen_lrc_file(asr_lrcs, vad_timestamps)
         with open(os.path.join(output_dir, f"{name}.lrc"), "w") as f:
             f.write("\n".join(new_lrcs))
+
+        import shutil
+        shutil.rmtree(temp_dir)
+
     except Exception as e:
         print((f"Error in handling wav | {wav_path} | {vad_path} | {e}"))
+
+
 
 def init_process(device_number):
     global shared_number
