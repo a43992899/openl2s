@@ -26,7 +26,7 @@ device = None
 model = None
 model_dir = "asr/pretrained_models"
 
-batch_size = 1
+batch_size = 4
 device_count = torch.cuda.device_count()
 shared_number = None
 pattern = r'\[(\d{2}):(\d{2}).(\d{2})\].*?'
