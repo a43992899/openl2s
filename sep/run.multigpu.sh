@@ -27,6 +27,12 @@ elif [ $DATASET_NAME = mtgjamendo ]; then
     SAVE_PATH=/path/to/mtgjamendo/sep/
     EXP_NAME=mtgjamendo_sep
     PREFIX_TO_REPLACE=/path/to/mtgjamendo/audio/
+elif [ $DATASET_NAME = annealing_missing ]; then
+    # DATA_PATH can be replaced with a filelist.txt
+    DATA_PATH=/aifs4su/mmdata/rawdata/codeclm/music/annealing/audio/
+    SAVE_PATH=/aifs4su/mmdata/rawdata/music/annealing/sep/
+    EXP_NAME=annealing_missing
+    PREFIX_TO_REPLACE=/aifs4su/mmdata/rawdata/codeclm/music/annealing/audio/
 else
     echo "invalid dataset name: $DATASET_NAME"
     exit

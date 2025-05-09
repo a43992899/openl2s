@@ -529,7 +529,7 @@ class MainWindow():
 
                     if not DISABLE_LOGGING: print(DONE)
             except Exception as e:
-                print(f'Processing file: {audio_file} failed with error: {e}')    
+                tqdm.write(f'Processing file: {audio_file} failed with error: {e}')    
                 
         if not USE_IN_MEMORY_FS_TO_CACHE_INTERMEDIATE_RESULTS:
             shutil.rmtree(export_path) if is_ensemble and len(os.listdir(export_path)) == 0 else None
